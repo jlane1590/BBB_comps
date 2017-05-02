@@ -62,24 +62,24 @@ typedef struct {
 } pwmss_reg_t;
 
 typedef struct {
-	__u16	TBCTL		//0x0		Time base control register
-	__u16	TBSTS		//0x2		TIme base status register
-	__u16	TBPHSHR		//0x4		HRPWM phase register
-	__u16	TBPHS		//0x6		Time base phase register
-	__u16	TBCNT		//0x8		Time base counter register
-	__u16	TBPRD		//0xA		Time base period register
-	__u16	RESERVED	//0xC		Reserved memory space, DO NOT MODIFY
-	__u16	CMPCTL		//0xE		Counter compare control register
-	__u16	CMPAHR		//0x10		HRPWM counter compare A register
-	__u16	CMPA		//0x12		Counter compare A register
-	__u16	CMPB		//0x14		Counter compare B register
-	__u16	AQCTLA		//0x16		Action qualifier control register for output A
-	__u16	AQCTLB		//0x18		Action qualifier control register for output B
-	__u16	AQSFRC		//0x1A		Action qualifier software force register
-	__u16	AQCSFRC		//0x1C		Action qualifier continuous software force register
-	__u16	DBCTL		//0x1E		Dead band generator control register
-	__u16	DBRED		//0x20		Dead band generator rising edge delay count register
-	__u16	DBFED		//0x22		Dead band generator falling edge delay count register
+	__u16	TBCTL;		//0x0		Time base control register
+	__u16	TBSTS;		//0x2		TIme base status register
+	__u16	TBPHSHR;	//0x4		HRPWM phase register
+	__u16	TBPHS;		//0x6		Time base phase register
+	__u16	TBCNT;		//0x8		Time base counter register
+	__u16	TBPRD;		//0xA		Time base period register
+	__u16	RESERVED;	//0xC		Reserved memory space, DO NOT MODIFY
+	__u16	CMPCTL;		//0xE		Counter compare control register
+	__u16	CMPAHR;		//0x10		HRPWM counter compare A register
+	__u16	CMPA;		//0x12		Counter compare A register
+	__u16	CMPB;		//0x14		Counter compare B register
+	__u16	AQCTLA;		//0x16		Action qualifier control register for output A
+	__u16	AQCTLB;		//0x18		Action qualifier control register for output B
+	__u16	AQSFRC;		//0x1A		Action qualifier software force register
+	__u16	AQCSFRC;	//0x1C		Action qualifier continuous software force register
+	__u16	DBCTL;		//0x1E		Dead band generator control register
+	__u16	DBRED;		//0x20		Dead band generator rising edge delay count register
+	__u16	DBFED;		//0x22		Dead band generator falling edge delay count register
 
 } ePWM_reg_t;
 
@@ -91,8 +91,8 @@ typedef struct {
 
 	hal_float_t				*dutyA;
 	hal_float_t				*dutyB;
-	hal_float_t				minDC;
-	hal_float_t				maxDC;
+	hal_float_t				*minDC;
+	hal_float_t				*maxDC;
 	hal_float_t				*scale;
 	
 	hal_bit_t				*enAout;

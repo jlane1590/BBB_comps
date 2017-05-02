@@ -80,10 +80,10 @@ char *pwmgens[MAX_PWM] = {0,};
 RTAPI_MP_ARRAY_STRING(pwmgens, MAX_PWM, "name of ePWM modules");
 int frequency = 0;
 RTAPI_MP_INT(frequency, "frequency of PWM modules (1Hz - 25kHz)");
-float minDC = 0.0;
-RTAPI_MP_FLOAT(minDC, "min allowable duty cycle (0.0% - 100.0%");
-float maxDC = 100.0;
-RTAPI_MP_FLOAT(maxDC, "max allowable duty cycle (0.0% - 100.0%");
+int minDC = 0;
+RTAPI_MP_INT(minDC, "min allowable duty cycle (0% - 100%)");
+int maxDC = 100;
+RTAPI_MP_INT(maxDC, "max allowable duty cycle (0% - 100%)");
 
 /* Globals */
 const devices_t devices[] = {
@@ -112,6 +112,8 @@ static int export_ePWM(ePWM_t *addr);
 static int setup_ePWM(ePWM_t *ePWM);
 static void update(void *arg, long period);
 void disable_ePWM(ePWM_t *ePWM);
+void disable_channel(ePWM_t *ePWM, int channel);
+void enable_channel(ePWM_t *ePWM, int channel);
 
 /*---------------------
  INIT and EXIT CODE
@@ -205,7 +207,7 @@ void rtapi_app_exit(void)
 	int n, retval, i;
     ePWM_t *ePWM;
 	
-	for(i = 0; i < howmany; i++){
+	for(n = 0; n < howmany; n++){
 		ePWM = &(ePWM_array[n]);
 		disable_ePWM(ePWM);
 	}
@@ -228,9 +230,9 @@ static void update(void *arg, long period)
 static int setup_ePWM(ePWM_t *ePWM)
 {
 	/* export pins to hal */
-	export_pwmgen(ePWM);
+	export_ePWM(ePWM);
 	/* initiatlize members of ePWM struct */
-    *(ePWM->dutyA) = 28.0;
+    	*(ePWM->dutyA) = 28.0;
 	*(ePWM->dutyB) = 63.0;
 	*(ePWM->enAout) = false;
 	*(ePWM->enBout) = false;
@@ -294,15 +296,20 @@ static int setup_ePWM(ePWM_t *ePWM)
 #endif
 
 	/* setting clock diver and freeze time base */
-	//ePWM->ePWM_reg->TBCTL = TBCTL_CTRMODE_FREEZE | (NearCLKDIV << 10) | (NearHSPCLKDIV << 7);
 	ePWM->ePWM_reg->TBCTL = TBCTL_CTRMODE_FREEZE | (NearCLKDIV << 10) | (NearHSPCLKDIV << 7);
 
 	/*  setting duty A and duty B */
-	//ePWM->ePWM_reg->CMPB = (unsigned short)((float)NearTBPRD * (*(ePWM->dutyB)));
-	ePWM->ePWM_reg->CMPB = (unsigned short)(1025);
+	float dcA, dcB;
+	dcA = *(ePWM->dutyA) / 100.0f;
+	dcB = *(ePWM->dutyB) / 100.0f;
+	*(ePWM->minDC) = (float)NearTBPRD * dcA;
+	*(ePWM->maxDC) = (float)NearTBPRD * dcB;
+	rtapi_print("dcA = %f, dcB = %f\n",dcA, dcB);
+	ePWM->ePWM_reg->CMPB = (unsigned short)((float)NearTBPRD * (*(ePWM->dutyB) / 100.0f));
+	//ePWM->ePWM_reg->CMPB = (unsigned short)(1025);
 
-	//ePWM->ePWM_reg->CMPA = (unsigned short)((float)NearTBPRD * (*(ePWM->dutyA)));
-	ePWM->ePWM_reg->CMPA = (unsigned short)(3321);
+	ePWM->ePWM_reg->CMPA = (unsigned short)((float)NearTBPRD * (*(ePWM->dutyA) / 100.0f));
+	//ePWM->ePWM_reg->CMPA = (unsigned short)(3321);
 
 	//ePWM->ePWM_reg->TBPRD = (unsigned short)NearTBPRD;
 	ePWM->ePWM_reg->TBPRD = (unsigned short)(4000);
@@ -314,13 +321,13 @@ static int setup_ePWM(ePWM_t *ePWM)
 		
 	ePWM->ePWM_reg->AQCTLB = 0x2 | ( 0x3 << 8);
 
-    ePWM->ePWM_reg->TBCTL &= ~0x3;
+        ePWM->ePWM_reg->TBCTL &= ~0x3;
 
-    rtapi_print("%s: REVID = %#x\n",modname, ePWM->ePWM_reg->QREVID);
+    //rtapi_print("%s: REVID = %#x\n",modname, ePWM->ePWM_reg->QREVID);
     return 0;
 }
 
-static int export_pwmgen(ePWM_t *ePWM)
+static int export_ePWM(ePWM_t *ePWM)
 {
     if (hal_pin_bit_newf(HAL_IO, &(ePWM->enAout), comp_id, "%s.A-out-enable", ePWM->name)) {
         rtapi_print_msg(RTAPI_MSG_ERR,"Error exporting A-out-enable\n");
@@ -334,12 +341,20 @@ static int export_pwmgen(ePWM_t *ePWM)
         rtapi_print_msg(RTAPI_MSG_ERR,"Error exporting Channel-A-duty-cycle\n");
         return -1;
     }
-	if (hal_pin_float_newf(HAL_IO, &(ePWM->dutyB), comp_id, "%s.Channel-B-duty-cycle", ePWM->name)) {
+    if (hal_pin_float_newf(HAL_IO, &(ePWM->dutyB), comp_id, "%s.Channel-B-duty-cycle", ePWM->name)) {
         rtapi_print_msg(RTAPI_MSG_ERR,"Error exporting Channel-B-duty-cycle\n");
         return -1;
     }
-	if (hal_pin_float_newf(HAL_IO, &(ePWM->scale), comp_id, "%s.Duty-cycle-scale", ePWM->name)) {
+    if (hal_pin_float_newf(HAL_IO, &(ePWM->scale), comp_id, "%s.Duty-cycle-scale", ePWM->name)) {
         rtapi_print_msg(RTAPI_MSG_ERR,"Error exporting Duty-cycle-scale\n");
+        return -1;
+    }
+    if (hal_pin_float_newf(HAL_IO, &(ePWM->minDC), comp_id, "%s.minDC", ePWM->name)) {
+        rtapi_print_msg(RTAPI_MSG_ERR,"Error exporting minDC\n");
+        return -1;
+    }
+    if (hal_pin_float_newf(HAL_IO, &(ePWM->maxDC), comp_id, "%s.maxDC", ePWM->name)) {
+        rtapi_print_msg(RTAPI_MSG_ERR,"Error exporting maxDC\n");
         return -1;
     }
 
@@ -350,11 +365,36 @@ static int export_pwmgen(ePWM_t *ePWM)
 void disable_ePWM(ePWM_t *ePWM)
 {
     ePWM->ePWM_reg->TBCTL |= 0x3;
+    
+    ePWM->ePWM_reg->AQCTLA = 0x1 | ( 0x0 << 4);
+    		
+    ePWM->ePWM_reg->AQCTLB = 0x1 | ( 0x0 << 8);
 
-	ePWM->ePWM_reg->AQCTLA = 0x1 | ( 0x3 << 4);
-		
-	ePWM->ePWM_reg->AQCTLB = 0x1 | ( 0x3 << 8);
+    ePWM->ePWM_reg->TBCNT = 0;
+}
 
-	ePWM->ePWM_reg->TBCNT = 0;
+void disable_channel(ePWM_t *ePWM, int channel)
+{
+    //ePWM->ePWM_reg->TBCTL |= 0x3;
+    if(channel == 0)
+        ePWM->ePWM_reg->AQCTLA = 0x1 | ( 0x0 << 4);
+    else if(channel == 1)		
+        ePWM->ePWM_reg->AQCTLB = 0x1 | ( 0x0 << 8);
+
+    //ePWM->ePWM_reg->TBCNT = 0;
+}
+
+void enable_channel(ePWM_t *ePWM, int channel)
+{
+    int NearTBPRD = 4000;
+    //ePWM->ePWM_reg->TBCTL |= 0x3;
+    if(channel == 0){
+        ePWM->ePWM_reg->CMPA = (unsigned short)((float)NearTBPRD * (*(ePWM->dutyA)));
+        ePWM->ePWM_reg->AQCTLA = 0x2 | ( 0x3 << 4);
+    }else if(channel == 1){
+        ePWM->ePWM_reg->CMPB = (unsigned short)((float)NearTBPRD * (*(ePWM->dutyB)));
+        ePWM->ePWM_reg->AQCTLB = 0x2 | ( 0x3 << 8);
+    }
+    //ePWM->ePWM_reg->TBCNT = 0;
 }
 
