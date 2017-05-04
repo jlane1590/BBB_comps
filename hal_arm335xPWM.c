@@ -1,19 +1,16 @@
 /*--------------------------------------------------------------------------
-// Description: hal_arm335xQEP.c
-// HAL module to implement quadrature decoding using the ARM335x eQEP
-// Module
+// Description: hal_arm335xPWM.c
+// 
 //
-// Author(s): Russell Gower
+// Author(s): Josh Lane
 // License: GNU GPL Version 2.0 or (at your option) any later version.
 //
 // Major Changes:
-// 2014-Nov    Russell Gower
-//             Initial implementation, based on encoderc.c by John Kasunich
+//
+//
 //--------------------------------------------------------------------------
 // This file is part of LinuxCNC HAL
 //
-// Copyright (C) 2014  Russell Gower
-//                     <russell AT thegowers DOT me DOT uk>
 //
 // This program is free software; you can redistribute it and/or
 // modify it under the terms of the GNU General Public License
@@ -56,7 +53,6 @@
 #include <stdlib.h>
 #include <stdbool.h>
 
-/* Include any other necessary header files */
 #include "hal_arm335xPWM.h"
 
 
@@ -75,7 +71,15 @@ MODULE_AUTHOR("Josh Lane");
 MODULE_DESCRIPTION("PWMSS HAL driver for ARM335x");
 MODULE_LICENSE("GPL");
 
+/* CONSTANTS AND MACROS */
 #define MAX_PWM 3
+//TBCTL Counter Modes
+#define TBCTL_CTRMODE_UP        0x0
+#define TBCTL_CTRMODE_DOWN      0x1
+#define TBCTL_CTRMODE_UPDOWN    0x2
+#define TBCTL_CTRMODE_FREEZE    0x3
+
+/* HAL Module Parameters */
 char *pwmgens[MAX_PWM] = {0,};
 RTAPI_MP_ARRAY_STRING(pwmgens, MAX_PWM, "name of ePWM modules");
 int frequency = 0;
@@ -85,26 +89,21 @@ RTAPI_MP_INT(minDC, "min allowable duty cycle (0% - 100%)");
 int maxDC = 100;
 RTAPI_MP_INT(maxDC, "max allowable duty cycle (0% - 100%)");
 
-/* Globals */
+/* Global Variables */
 const devices_t devices[] = {
     {"ePWM0", 0x48300000},
     {"ePWM1", 0x48302000},
     {"ePWM2", 0x48304000},
     {NULL,-1}
 };
-
-#define TBCTL_CTRMODE_UP        0x0
-#define TBCTL_CTRMODE_DOWN      0x1
-#define TBCTL_CTRMODE_UPDOWN    0x2
-#define TBCTL_CTRMODE_FREEZE    0x3
-
 static const char *modname = MODNAME;
 static int comp_id;
-
 static ePWM_t *ePWM_array; /* pointer to array of ePWM_t structs in
                                     shmem, 1 per pwmgen */
 static int howmany;
 ////////static hal_u32_t timebase;
+
+
 /*---------------------
  Function prototypes
 ---------------------*/
@@ -123,6 +122,21 @@ int rtapi_app_main(void)
 {
     int n, retval, i;
     ePWM_t *ePWM;
+	
+	//Check for valid module parameters
+	int param_error = 1;
+	if (frequency < 0 )
+	    param_error = 0;
+	if (minDC < 0 || minDC > maxDC || maxDC > 100)
+		param_error = 0;
+
+    if (param_error == 0) {
+		rtapi_print_msg(RTAPI_MSG_ERR,
+					"%s: ERROR: PWM frequency not valid\n",modname);
+				hal_exit(comp_id);
+		return -1;
+	}
+	
     /* test for number of channels */
     for (howmany=0; howmany < MAX_PWM && pwmgens[howmany]; howmany++) ;
 
@@ -147,8 +161,6 @@ int rtapi_app_main(void)
         hal_exit(comp_id);
         return -1;
     }
-
-/////////////    timebase = 0;
 
     /* setup and export all the variables for each ePWM device */
     for (n = 0; n < howmany; n++) {
@@ -204,13 +216,13 @@ int rtapi_app_main(void)
 void rtapi_app_exit(void)
 {
 
-	int n, retval, i;
+/*	int n;
     ePWM_t *ePWM;
 	
 	for(n = 0; n < howmany; n++){
 		ePWM = &(ePWM_array[n]);
 		disable_ePWM(ePWM);
-	}
+	}*/
     hal_exit(comp_id);
 }
 
@@ -231,33 +243,23 @@ static int setup_ePWM(ePWM_t *ePWM)
 {
 	/* export pins to hal */
 	export_ePWM(ePWM);
-	/* initiatlize members of ePWM struct */
-    	*(ePWM->dutyA) = 28.0;
-	*(ePWM->dutyB) = 63.0;
+	
+	/* initialize members of ePWM struct */
+    *(ePWM->dutyA) = minDC;
+	*(ePWM->dutyB) = minDC;
 	*(ePWM->enAout) = false;
 	*(ePWM->enBout) = false;
 
-	int param_error = 1;
-	if (frequency < 0 )
-	    param_error = 0;
-
-    if (param_error == 0) {
-		rtapi_print_msg(RTAPI_MSG_ERR,
-					"%s: ERROR: PWM frequency not valid\n",modname);
-				hal_exit(comp_id);
-		return -1;
-	}
-
-	/* compute neccessary TBPRD */
+	/* compute TBPRD and Clock dividers for desired PWM frequency */
 	float Cyclens =0.0f ;
-	float Divisor =0;
+	float Divisor =0.0f;
 	int i , j ;
 	const float CLKDIV_div[] = {1.0 ,2.0 ,4.0 ,8.0 ,16.0 ,32.0 , 64.0 , 128.0};
 	const float HSPCLKDIV_div[] ={1.0 ,2.0 ,4.0 ,6.0 ,8.0 ,10.0 , 12.0 , 14.0};
-	int NearCLKDIV =0;
-	int NearHSPCLKDIV =0;
-	int NearTBPRD =4000;
-#if 0
+	int NearCLKDIV =7;
+	int NearHSPCLKDIV =7;
+	int NearTBPRD =0;
+#if 1
 	Cyclens = 1000000000.0f / frequency ; /* 10^9 / HZ , comput time per cycle (ns) */
 
 
@@ -284,46 +286,31 @@ static int setup_ePWM(ePWM_t *ePWM)
 		}
 
 		NearTBPRD = (Cyclens / (10.0 *CLKDIV_div[NearCLKDIV] *HSPCLKDIV_div[NearHSPCLKDIV])) ;
-
-		/* setting clock diver and freeze time base */
-		ePWM->ePWM_reg->TBCTL = TBCTL_CTRMODE_FREEZE | (NearCLKDIV << 10) | (NearHSPCLKDIV << 7);
-
-		ePWM->ePWM_reg->TBPRD = (unsigned short)NearTBPRD;
-
-		/* reset time base counter */
-		ePWM->ePWM_reg->TBCNT = 0;
 	}
 #endif
 
-	/* setting clock diver and freeze time base */
+	/* setting clock driver and freeze time base */
 	ePWM->ePWM_reg->TBCTL = TBCTL_CTRMODE_FREEZE | (NearCLKDIV << 10) | (NearHSPCLKDIV << 7);
+	
+	ePWM->ePWM_reg->TBPRD = (unsigned short)NearTBPRD;
+	//ePWM->ePWM_reg->TBPRD = (unsigned short)(4000);
+	
+	/* reset time base counter */
+	ePWM->ePWM_reg->TBCNT = 0;
 
-	/*  setting duty A and duty B */
-	float dcA, dcB;
-	dcA = *(ePWM->dutyA) / 100.0f;
-	dcB = *(ePWM->dutyB) / 100.0f;
-	*(ePWM->minDC) = (float)NearTBPRD * dcA;
-	*(ePWM->maxDC) = (float)NearTBPRD * dcB;
-	rtapi_print("dcA = %f, dcB = %f\n",dcA, dcB);
+	/*  setting duty A and duty B, PWM channel outputs initially disabled */
 	ePWM->ePWM_reg->CMPB = (unsigned short)((float)NearTBPRD * (*(ePWM->dutyB) / 100.0f));
 	//ePWM->ePWM_reg->CMPB = (unsigned short)(1025);
 
 	ePWM->ePWM_reg->CMPA = (unsigned short)((float)NearTBPRD * (*(ePWM->dutyA) / 100.0f));
 	//ePWM->ePWM_reg->CMPA = (unsigned short)(3321);
-
-	//ePWM->ePWM_reg->TBPRD = (unsigned short)NearTBPRD;
-	ePWM->ePWM_reg->TBPRD = (unsigned short)(4000);
-
-	/* reset time base counter */
-	ePWM->ePWM_reg->TBCNT = 0;
 		
 	ePWM->ePWM_reg->AQCTLA = 0x2 | ( 0x3 << 4);
 		
 	ePWM->ePWM_reg->AQCTLB = 0x2 | ( 0x3 << 8);
 
-        ePWM->ePWM_reg->TBCTL &= ~0x3;
-
-    //rtapi_print("%s: REVID = %#x\n",modname, ePWM->ePWM_reg->QREVID);
+    ePWM->ePWM_reg->TBCTL &= ~0x3;
+	
     return 0;
 }
 
