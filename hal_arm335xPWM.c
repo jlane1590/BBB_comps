@@ -79,6 +79,9 @@ MODULE_LICENSE("GPL");
 #define TBCTL_CTRMODE_UPDOWN    0x2
 #define TBCTL_CTRMODE_FREEZE    0x3
 
+#define CHANNEL_A	0
+#define CHANNEL_B	1
+
 /* HAL Module Parameters */
 char *pwmgens[MAX_PWM] = {0,};
 RTAPI_MP_ARRAY_STRING(pwmgens, MAX_PWM, "name of ePWM modules");
@@ -113,6 +116,7 @@ static void update(void *arg, long period);
 void disable_ePWM(ePWM_t *ePWM);
 void disable_channel(ePWM_t *ePWM, int channel);
 void enable_channel(ePWM_t *ePWM, int channel);
+void set_channel_dc(ePWM_t *ePWM, int channel);
 
 /*---------------------
  INIT and EXIT CODE
@@ -232,7 +236,67 @@ void rtapi_app_exit(void)
 
 static void update(void *arg, long period)
 {
+	ePWM_t *ePWM;
 
+    ePWM = arg;
+	
+	if(*(ePWM->dutyA) < (float)minDC)
+		*(ePWM->dutyA) = (float)minDC;
+	else if(*(ePWM->dutyA) > (float)maxDC)
+		*(ePWM->dutyA) = (float)maxDC;
+	
+	if(*(ePWM->dutyB) < (float)minDC)
+		*(ePWM->dutyB) = (float)minDC;
+	else if(*(ePWM->dutyB) > (float)maxDC)
+		*(ePWM->dutyB) = (float)maxDC;
+	
+	/* update channel A */
+	if(*(ePWM->enAout) && *(ePWM->dutyA))	//channel A is enabled and dc is non zero
+	{
+		if(!ePWM->oldEnA || !ePWM->oldDutyA)	//channel A was previously disabled
+		{
+			enable_channel(ePWM, CHANNEL_A);//enable PWM channel A
+		}
+		else	//channel A is already enabled so just set duty cycle
+		{
+			if(*(ePWM->dutyA) != ePWM->oldDutyA)
+				set_channel_dc(ePWM, CHANNEL_A); //set duty cycle for channel A
+		}
+	}
+	else	//channel A should be disabled
+	{
+		if(ePWM->oldEnA && ePWM->oldDutyA)	//channel A was previously enabled
+		{
+			disable_channel(ePWM, CHANNEL_A);//disable PWM channel A
+			
+		} //else do nothing, channel A is already disabled and should stay disabled
+	}
+	/* update channel B */
+	if(*(ePWM->enBout) && *(ePWM->dutyB))	//channel B is enabled and dc is non zero
+	{
+		if(!ePWM->oldEnB || !ePWM->oldDutyB)	//channel B was previously disabled
+		{
+			enable_channel(ePWM, CHANNEL_B);//enable PWM channel B
+		}
+		else	//channel B is already enabled so just set duty cycle
+		{
+			if(*(ePWM->dutyB) != ePWM->oldDutyB)
+				set_channel_dc(ePWM, CHANNEL_B); //set duty cycle for channel B
+		}
+	}
+	else	//channel B should be disabled
+	{
+		if(ePWM->oldEnB && ePWM->oldDutyB)	//channel B was previously enabled
+		{
+			disable_channel(ePWM, CHANNEL_B);//disable PWM channel B
+			
+		} //else do nothing, channel B is already disabled and should stay disabled
+	}
+	
+	ePWM->oldEnA = *(ePWM->enAout);
+	ePWM->oldDutyA = *(ePWM->dutyA);
+	ePWM->oldEnB = *(ePWM->enBout);
+	ePWM->oldDutyB = *(ePWM->dutyB);
 }
 
 
@@ -245,10 +309,19 @@ static int setup_ePWM(ePWM_t *ePWM)
 	export_ePWM(ePWM);
 	
 	/* initialize members of ePWM struct */
-    *(ePWM->dutyA) = minDC;
-	*(ePWM->dutyB) = minDC;
+    *(ePWM->dutyA) = (float)minDC;
+	*(ePWM->dutyB) = (float)minDC;
 	*(ePWM->enAout) = false;
 	*(ePWM->enBout) = false;
+	ePWM->oldEnA = false;
+	ePWM->oldEnB = false;
+	ePWM->oldDutyA = (float)minDC;
+	ePWM->oldDutyB = (float)minDC;
+	*(ePWM->scale) = 1.0f;
+	ePWM->dcA_scaled = *(ePWM->dutyA) / (100.0f * *(ePWM->scale));
+	ePWM->dcB_scaled = *(ePWM->dutyB) / (100.0f * *(ePWM->scale));
+	*(ePWM->minDC) = (float)minDC;
+	*(ePWM->maxDC) = (float)maxDC;
 
 	/* compute TBPRD and Clock dividers for desired PWM frequency */
 	float Cyclens =0.0f ;
@@ -259,13 +332,11 @@ static int setup_ePWM(ePWM_t *ePWM)
 	int NearCLKDIV =7;
 	int NearHSPCLKDIV =7;
 	int NearTBPRD =0;
-#if 1
+
 	Cyclens = 1000000000.0f / frequency ; /* 10^9 / HZ , comput time per cycle (ns) */
 
-
 	Divisor =  (Cyclens / 655350.0f) ;	/* am335x provide (128*14) divider , and per TBPRD means 10 ns when divider /1 ,
-						 * and max TBPRD is 65535 , so , the max cycle is 128*14* 65535 *10ns
-						 */
+						 * and max TBPRD is 65535 , so , the max cycle is 128*14* 65535 *10ns */
 
 	if(Divisor > (128 * 14)) {
 		rtapi_print_msg(RTAPI_MSG_ERR,
@@ -287,28 +358,26 @@ static int setup_ePWM(ePWM_t *ePWM)
 
 		NearTBPRD = (Cyclens / (10.0 *CLKDIV_div[NearCLKDIV] *HSPCLKDIV_div[NearHSPCLKDIV])) ;
 	}
-#endif
 
 	/* setting clock driver and freeze time base */
 	ePWM->ePWM_reg->TBCTL = TBCTL_CTRMODE_FREEZE | (NearCLKDIV << 10) | (NearHSPCLKDIV << 7);
 	
 	ePWM->ePWM_reg->TBPRD = (unsigned short)NearTBPRD;
-	//ePWM->ePWM_reg->TBPRD = (unsigned short)(4000);
 	
 	/* reset time base counter */
 	ePWM->ePWM_reg->TBCNT = 0;
 
 	/*  setting duty A and duty B, PWM channel outputs initially disabled */
-	ePWM->ePWM_reg->CMPB = (unsigned short)((float)NearTBPRD * (*(ePWM->dutyB) / 100.0f));
-	//ePWM->ePWM_reg->CMPB = (unsigned short)(1025);
+	ePWM->ePWM_reg->CMPB = (unsigned short)((float)NearTBPRD * ePWM->dcB_scaled);
 
-	ePWM->ePWM_reg->CMPA = (unsigned short)((float)NearTBPRD * (*(ePWM->dutyA) / 100.0f));
-	//ePWM->ePWM_reg->CMPA = (unsigned short)(3321);
-		
-	ePWM->ePWM_reg->AQCTLA = 0x2 | ( 0x3 << 4);
-		
-	ePWM->ePWM_reg->AQCTLB = 0x2 | ( 0x3 << 8);
+	ePWM->ePWM_reg->CMPA = (unsigned short)((float)NearTBPRD * ePWM->dcA_scaled);
+	
+	/* make sure PWM A and B outputs are disabled */
+	ePWM->ePWM_reg->AQCTLA = 0x1 | ( 0x0 << 4);
+    		
+    ePWM->ePWM_reg->AQCTLB = 0x1 | ( 0x0 << 8);
 
+	/* start the period counter even though the outputs are disabled */
     ePWM->ePWM_reg->TBCTL &= ~0x3;
 	
     return 0;
@@ -316,31 +385,31 @@ static int setup_ePWM(ePWM_t *ePWM)
 
 static int export_ePWM(ePWM_t *ePWM)
 {
-    if (hal_pin_bit_newf(HAL_IO, &(ePWM->enAout), comp_id, "%s.A-out-enable", ePWM->name)) {
+    if (hal_pin_bit_newf(HAL_IN, &(ePWM->enAout), comp_id, "%s.en_A", ePWM->name)) {
         rtapi_print_msg(RTAPI_MSG_ERR,"Error exporting A-out-enable\n");
         return -1;
     }
-    if (hal_pin_bit_newf(HAL_IO, &(ePWM->enBout), comp_id, "%s.B-out-enable", ePWM->name)) {
+    if (hal_pin_bit_newf(HAL_IN, &(ePWM->enBout), comp_id, "%s.en_B", ePWM->name)) {
         rtapi_print_msg(RTAPI_MSG_ERR,"Error exporting B-out-enable\n");
         return -1;
     }
-    if (hal_pin_float_newf(HAL_IO, &(ePWM->dutyA), comp_id, "%s.Channel-A-duty-cycle", ePWM->name)) {
+    if (hal_pin_float_newf(HAL_IN, &(ePWM->dutyA), comp_id, "%s.dc_A", ePWM->name)) {
         rtapi_print_msg(RTAPI_MSG_ERR,"Error exporting Channel-A-duty-cycle\n");
         return -1;
     }
-    if (hal_pin_float_newf(HAL_IO, &(ePWM->dutyB), comp_id, "%s.Channel-B-duty-cycle", ePWM->name)) {
+    if (hal_pin_float_newf(HAL_IN, &(ePWM->dutyB), comp_id, "%s.dc_B", ePWM->name)) {
         rtapi_print_msg(RTAPI_MSG_ERR,"Error exporting Channel-B-duty-cycle\n");
         return -1;
     }
-    if (hal_pin_float_newf(HAL_IO, &(ePWM->scale), comp_id, "%s.Duty-cycle-scale", ePWM->name)) {
+    if (hal_pin_float_newf(HAL_IN, &(ePWM->scale), comp_id, "%s.dc_scale", ePWM->name)) {
         rtapi_print_msg(RTAPI_MSG_ERR,"Error exporting Duty-cycle-scale\n");
         return -1;
     }
-    if (hal_pin_float_newf(HAL_IO, &(ePWM->minDC), comp_id, "%s.minDC", ePWM->name)) {
+    if (hal_pin_float_newf(HAL_IN, &(ePWM->minDC), comp_id, "%s.dc_min", ePWM->name)) {
         rtapi_print_msg(RTAPI_MSG_ERR,"Error exporting minDC\n");
         return -1;
     }
-    if (hal_pin_float_newf(HAL_IO, &(ePWM->maxDC), comp_id, "%s.maxDC", ePWM->name)) {
+    if (hal_pin_float_newf(HAL_IN, &(ePWM->maxDC), comp_id, "%s.dc_max", ePWM->name)) {
         rtapi_print_msg(RTAPI_MSG_ERR,"Error exporting maxDC\n");
         return -1;
     }
@@ -363,25 +432,50 @@ void disable_ePWM(ePWM_t *ePWM)
 void disable_channel(ePWM_t *ePWM, int channel)
 {
     //ePWM->ePWM_reg->TBCTL |= 0x3;
-    if(channel == 0)
+    if(channel == CHANNEL_A)
+	{
         ePWM->ePWM_reg->AQCTLA = 0x1 | ( 0x0 << 4);
-    else if(channel == 1)		
+		*(ePWM->dutyA) = *(ePWM->minDC);
+	}
+    else if(channel == CHANNEL_B)	
+	{
         ePWM->ePWM_reg->AQCTLB = 0x1 | ( 0x0 << 8);
+		*(ePWM->dutyB) = *(ePWM->minDC);
+	}
 
     //ePWM->ePWM_reg->TBCNT = 0;
 }
 
 void enable_channel(ePWM_t *ePWM, int channel)
 {
-    int NearTBPRD = 4000;
     //ePWM->ePWM_reg->TBCTL |= 0x3;
-    if(channel == 0){
-        ePWM->ePWM_reg->CMPA = (unsigned short)((float)NearTBPRD * (*(ePWM->dutyA)));
+	set_channel_dc(ePWM, channel);
+	
+    if(channel == CHANNEL_A){
         ePWM->ePWM_reg->AQCTLA = 0x2 | ( 0x3 << 4);
-    }else if(channel == 1){
-        ePWM->ePWM_reg->CMPB = (unsigned short)((float)NearTBPRD * (*(ePWM->dutyB)));
+    }else if(channel == CHANNEL_B){
         ePWM->ePWM_reg->AQCTLB = 0x2 | ( 0x3 << 8);
     }
     //ePWM->ePWM_reg->TBCNT = 0;
+}
+
+void set_channel_dc(ePWM_t *ePWM, int channel)
+{
+	int NearTBPRD = 4000;
+
+    if(channel == CHANNEL_A){
+		ePWM->dcA_scaled = *(ePWM->dutyA) / (100.0f * *(ePWM->scale));
+		unsigned short CMPA_val = (unsigned short)((float)NearTBPRD * ePWM->dcA_scaled);
+		if(CMPA_val == 0)
+			disable_channel(ePWM, channel);
+        ePWM->ePWM_reg->CMPA = CMPA_val;
+    }
+	else if(channel == CHANNEL_B){
+		ePWM->dcB_scaled = *(ePWM->dutyB) / (100.0f * *(ePWM->scale));
+		unsigned short CMPB_val = (unsigned short)((float)NearTBPRD * ePWM->dcB_scaled);
+		if(CMPB_val == 0)
+			disable_channel(ePWM, channel);
+        ePWM->ePWM_reg->CMPB = CMPB_val;
+    }
 }
 

@@ -91,12 +91,18 @@ typedef struct {
 
 	hal_float_t				*dutyA;
 	hal_float_t				*dutyB;
+	hal_float_t				dcA_scaled;
+	hal_float_t				dcB_scaled;
 	hal_float_t				*minDC;
 	hal_float_t				*maxDC;
 	hal_float_t				*scale;
+	hal_float_t				oldDutyA;
+	hal_float_t				oldDutyB;
 	
 	hal_bit_t				*enAout;
 	hal_bit_t				*enBout;
+	hal_bit_t				oldEnA;
+	hal_bit_t				oldEnB;
 //	hal_bit_t				dirA;
 //	hal_bit_t				dirB;
 //	hal_u32_t				dirApin;
