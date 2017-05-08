@@ -89,24 +89,32 @@ typedef struct {
     pwmss_reg_t volatile	*pwmss_reg;   /* Pointer to PWMSS hardware registers */
     ePWM_reg_t volatile		*ePWM_reg;  	/* Pointer to ePWM hardware registers */
 
-	hal_float_t				*dutyA;
-	hal_float_t				*dutyB;
-	hal_float_t				dcA_scaled;
-	hal_float_t				dcB_scaled;
-	hal_float_t				*minDC;
-	hal_float_t				*maxDC;
-	hal_float_t				*scale;
-	hal_float_t				oldDutyA;
-	hal_float_t				oldDutyB;
+	hal_float_t				*dcA;
+	hal_float_t				*dcB;
+	hal_bit_t				*enA_in;
+	hal_bit_t				*enB_in;
+	hal_float_t				*scale_in;
+	hal_u32_t				*dirApin;
+	hal_u32_t				*dirBpin;
 	
-	hal_bit_t				*enAout;
-	hal_bit_t				*enBout;
+	hal_float_t				scale;
+	hal_float_t				scaled_dcA;
+	hal_float_t				scaled_dcB;
+	hal_float_t				old_scaled_dcA;
+	hal_float_t				old_scaled_dcB;
+	hal_bit_t				enA;
+	hal_bit_t				enB;
 	hal_bit_t				oldEnA;
 	hal_bit_t				oldEnB;
-//	hal_bit_t				dirA;
-//	hal_bit_t				dirB;
-//	hal_u32_t				dirApin;
-//	hal_u32_t				dirBpin;
+	hal_float_t				min_dc;
+	hal_float_t				max_dc;
+	hal_bit_t				dirA;
+	hal_bit_t				dirB;
+	hal_bit_t				oldDirA;
+	hal_bit_t				oldDirB;
+	hal_int_t				period;
+	hal_float_t				resolution;
+	hal_bit_t				outputType;
 } ePWM_t;
 
 // system tick 100MHz

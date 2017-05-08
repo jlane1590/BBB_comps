@@ -91,13 +91,15 @@ int minDC = 0;
 RTAPI_MP_INT(minDC, "min allowable duty cycle (0% - 100%)");
 int maxDC = 100;
 RTAPI_MP_INT(maxDC, "max allowable duty cycle (0% - 100%)");
+int type = 0;
+RTAPI_MP_INT(type, "output type. 0: unidirectional, 1: bidirectional");
 
 /* Global Variables */
 const devices_t devices[] = {
     {"ePWM0", 0x48300000},
     {"ePWM1", 0x48302000},
     {"ePWM2", 0x48304000},
-    {NULL,-1}
+    {NULL, -1}
 };
 static const char *modname = MODNAME;
 static int comp_id;
@@ -236,67 +238,199 @@ void rtapi_app_exit(void)
 
 static void update(void *arg, long period)
 {
+	hal_s32_t     i;
 	ePWM_t *ePWM;
-
+	
     ePWM = arg;
 	
-	if(*(ePWM->dutyA) < (float)minDC)
-		*(ePWM->dutyA) = (float)minDC;
-	else if(*(ePWM->dutyA) > (float)maxDC)
-		*(ePWM->dutyA) = (float)maxDC;
-	
-	if(*(ePWM->dutyB) < (float)minDC)
-		*(ePWM->dutyB) = (float)minDC;
-	else if(*(ePWM->dutyB) > (float)maxDC)
-		*(ePWM->dutyB) = (float)maxDC;
-	
-	/* update channel A */
-	if(*(ePWM->enAout) && *(ePWM->dutyA))	//channel A is enabled and dc is non zero
+	for(i = 0; i < howmany; i++)
 	{
-		if(!ePWM->oldEnA || !ePWM->oldDutyA)	//channel A was previously disabled
+		ePWM->scale = (*(ePWM->scale_in));
+		ePWM->enA = (*(ePWM->enA_in));
+		ePWM->enB = (*(ePWM->enB_in));
+		
+		//check if scale parameter has changed
+		if(ePWM->scale != ePWM->oldScale) //scale parameter has changed, validate new scale value
 		{
-			enable_channel(ePWM, CHANNEL_A);//enable PWM channel A
-		}
-		else	//channel A is already enabled so just set duty cycle
-		{
-			if(*(ePWM->dutyA) != ePWM->oldDutyA)
-				set_channel_dc(ePWM, CHANNEL_A); //set duty cycle for channel A
-		}
-	}
-	else	//channel A should be disabled
-	{
-		if(ePWM->oldEnA && ePWM->oldDutyA)	//channel A was previously enabled
-		{
-			disable_channel(ePWM, CHANNEL_A);//disable PWM channel A
 			
-		} //else do nothing, channel A is already disabled and should stay disabled
-	}
-	/* update channel B */
-	if(*(ePWM->enBout) && *(ePWM->dutyB))	//channel B is enabled and dc is non zero
-	{
-		if(!ePWM->oldEnB || !ePWM->oldDutyB)	//channel B was previously disabled
-		{
-			enable_channel(ePWM, CHANNEL_B);//enable PWM channel B
+			if (ePWM->scale < 1e-20) && (ePWM->scale > -1e-20)) // value too small, divide by zero is a bad thing
+			{
+				ePWM->scale = 1.0;
+			}
 		}
-		else	//channel B is already enabled so just set duty cycle
+		
+		//calculate scaled duty cycle values
+		ePWM->scaled_dcA = (*(ePWM->dcA)) / ePWM->scale; //scale dcA
+		ePWM->scaled_dcB = (*(ePWM->dcB)) / ePWM->scale; //scale dcB
+		
+		//clamp dc values if output is unidirectional
+		if(ePWM->outputType = 0)
 		{
-			if(*(ePWM->dutyB) != ePWM->oldDutyB)
-				set_channel_dc(ePWM, CHANNEL_B); //set duty cycle for channel B
+			if(ePWM->scaled_dcA < 0.0)
+				ePWM->scaled_dcA = 0.0;
+				
+			if(ePWM->scaled_dcB < 0.0)
+				ePWM->scaled_dcB = 0.0;
 		}
-	}
-	else	//channel B should be disabled
-	{
-		if(ePWM->oldEnB && ePWM->oldDutyB)	//channel B was previously enabled
+		
+		//check if either duty cycle is below the resolution of the PWM
+		if(ePWM->scaled_dcA < ePWM->resolution && ePWM->scaled_dcA > -ePWM->resolution) //dcA is smaller than the resolution of the PWM counters and will be treated as 0
 		{
-			disable_channel(ePWM, CHANNEL_B);//disable PWM channel B
+			ePWM->scaled_dcA = 0.0;
+			ePWM->enA = 0;
+		}
+		
+		if(ePWM->scaled_dcB < ePWM->resolution && ePWM->scaled_dcB > -ePWM->resolution) //dcB is smaller than the resolution of the PWM counters and will be treated as 0
+		{
+			ePWM->scaled_dcB = 0.0;
+			ePWM->enB = 0;
+		}
+		
+		//channel A output is to be disabled
+		if(!ePWM->enA)
+		{
+			ePWM->scaled_dcA = 0.0;
+			if(ePWM->oldEnA) //channel A output is currently enabled; else the channel is already disabled so do nothing
+				disable_channel(ePWM, CHANNEL_A);
+		}
+		else //channel A output is to be enabled
+		{
+			//set PWM direction
+			if(ePWM->scaled_dcA < 0.0)
+			{
+				ePWM->dirA = 1;
+				ePWM->scaled_dcA = -ePWM->scaled_dcA;
+			}
+			else
+			{
+				ePWM->dirA = 0;
+			}
 			
-		} //else do nothing, channel B is already disabled and should stay disabled
+			/* limit the duty cycle */
+			if(ePWM->scaled_dcA > ePWM->max_dc) 
+			{
+				ePWM->scaled_dcA = ePWM->max_dc;
+			}
+			else if(ePWM->scaled_dcA < ePWM->min_dc)
+			{
+				ePWM->scaled_dcA = ePWM->min_dc;
+			}
+			//check if scaled_dcA has changed and update registers accordingly
+			if(ePWM->scaled_dcA != ePWM->old_scaled_dcA)
+				set_channel_dc(ePWM, CHANNEL_A);
+			//check if the A direction output has changed and update accordingly
+			if(ePWM->outputType = 1)
+				if(ePWM->dirA != ePWM->oldDirA)
+					setDir();	//replace with real way
+			//check if channel A output is currently disabled and update registers accordingly
+			if(!ePWM->oldEnA && ePWM->enA)
+				enable_channel(ePWM, CHANNEL_A);
+		}
+		
+		//channel B output is to be disabled
+		if(!ePWM->enB)
+		{
+			ePWM->scaled_dcB = 0.0;
+			if(ePWM->oldEnB) //channel A output is currently enabled; else the channel is already disabled so do nothing
+				disable_channel(ePWM, CHANNEL_B);
+		}
+		else //channel B output is to be enabled
+		{
+			//set PWM direction
+			if(ePWM->scaled_dcB < 0.0)
+			{
+				ePWM->dirB = 1;
+				ePWM->scaled_dcB = -ePWM->scaled_dcB;
+			}
+			else
+			{
+				ePWM->dirB = 0;
+			}
+			
+			/* limit the duty cycle */
+			if(ePWM->scaled_dcB > ePWM->max_dc) 
+			{
+				ePWM->scaled_dcB = ePWM->max_dc;
+			}
+			else if(ePWM->scaled_dcB < ePWM->min_dc)
+			{
+				ePWM->scaled_dcB = ePWM->min_dc;
+			}
+			//check if scaled_dcB has changed and update registers accordingly
+			if(ePWM->scaled_dcB != ePWM->old_scaled_dcB)
+				set_channel_dc(ePWM, CHANNEL_B);
+			//check if the B direction output has changed and update accordingly
+			if(ePWM->dirB != ePWM->oldDirB)
+				setDir();	//replace with real way
+			//check if channel B output is currently disabled and update registers accordingly
+			if(!ePWM->oldEnB && ePWM->enB)
+				enable_channel(ePWM, CHANNEL_B);
+		}
+		
+	#if 0	
+		if(*(ePWM->dcA) < (float)minDC)
+			*(ePWM->dcA) = (float)minDC;
+		else if(*(ePWM->dcA) > (float)maxDC)
+			*(ePWM->dutyA) = (float)maxDC;
+		
+		if(*(ePWM->dutyB) < (float)minDC)
+			*(ePWM->dutyB) = (float)minDC;
+		else if(*(ePWM->dutyB) > (float)maxDC)
+			*(ePWM->dutyB) = (float)maxDC;
+		
+		/* update channel A */
+		if(*(ePWM->enAout) && *(ePWM->dutyA))	//channel A is enabled and dc is non zero
+		{
+			if(!ePWM->oldEnA || !ePWM->oldDutyA)	//channel A was previously disabled
+			{
+				enable_channel(ePWM, CHANNEL_A);//enable PWM channel A
+			}
+			else	//channel A is already enabled so just set duty cycle
+			{
+				if(*(ePWM->dutyA) != ePWM->oldDutyA)
+					set_channel_dc(ePWM, CHANNEL_A); //set duty cycle for channel A
+			}
+		}
+		else	//channel A should be disabled
+		{
+			if(ePWM->oldEnA && ePWM->oldDutyA)	//channel A was previously enabled
+			{
+				disable_channel(ePWM, CHANNEL_A);//disable PWM channel A
+				
+			} //else do nothing, channel A is already disabled and should stay disabled
+		}
+		/* update channel B */
+		if(*(ePWM->enBout) && *(ePWM->dutyB))	//channel B is enabled and dc is non zero
+		{
+			if(!ePWM->oldEnB || !ePWM->oldDutyB)	//channel B was previously disabled
+			{
+				enable_channel(ePWM, CHANNEL_B);//enable PWM channel B
+			}
+			else	//channel B is already enabled so just set duty cycle
+			{
+				if(*(ePWM->dutyB) != ePWM->oldDutyB)
+					set_channel_dc(ePWM, CHANNEL_B); //set duty cycle for channel B
+			}
+		}
+		else	//channel B should be disabled
+		{
+			if(ePWM->oldEnB && ePWM->oldDutyB)	//channel B was previously enabled
+			{
+				disable_channel(ePWM, CHANNEL_B);//disable PWM channel B
+				
+			} //else do nothing, channel B is already disabled and should stay disabled
+		}
+	#endif
+		
+		ePWM->oldEnA = ePWM->enA;
+		ePWM->old_scaled_dcA = ePWM->scaled_dcA;
+		ePWM->oldDirA = ePWM->dirA;
+		ePWM->oldEnB = ePWM->enB;
+		ePWM->old_scaled_dcB = ePWM->scaled_dcB;
+		ePWM->oldDirB = ePWM->dirB;
+		
+		ePWM++;
 	}
-	
-	ePWM->oldEnA = *(ePWM->enAout);
-	ePWM->oldDutyA = *(ePWM->dutyA);
-	ePWM->oldEnB = *(ePWM->enBout);
-	ePWM->oldDutyB = *(ePWM->dutyB);
 }
 
 
@@ -309,19 +443,25 @@ static int setup_ePWM(ePWM_t *ePWM)
 	export_ePWM(ePWM);
 	
 	/* initialize members of ePWM struct */
-    *(ePWM->dutyA) = (float)minDC;
-	*(ePWM->dutyB) = (float)minDC;
-	*(ePWM->enAout) = false;
-	*(ePWM->enBout) = false;
+	ePWM->scale = 100.0f;
+	ePWM->scaled_dcA = 0.0f;
+	ePWM->scaled_dcB = 0.0f;
+	ePWM->old_scaled_dcA = 0.0f;
+	ePWM->old_scaled_dcB = 0.0f;
+	ePWM->enA = false;
+	ePWM->enB = false;
 	ePWM->oldEnA = false;
 	ePWM->oldEnB = false;
-	ePWM->oldDutyA = (float)minDC;
-	ePWM->oldDutyB = (float)minDC;
-	*(ePWM->scale) = 1.0f;
-	ePWM->dcA_scaled = *(ePWM->dutyA) / (100.0f * *(ePWM->scale));
-	ePWM->dcB_scaled = *(ePWM->dutyB) / (100.0f * *(ePWM->scale));
-	*(ePWM->minDC) = (float)minDC;
-	*(ePWM->maxDC) = (float)maxDC;
+	ePWM->min_dc = (float)minDC / 100.0f;
+	ePWM->max_dc = (float)maxDC / 100.0f;
+	ePWM->dirA = 0;
+	ePWM->dirB = 0;
+	ePWM->oldDirA = 0;
+	ePWM->oldDirB = 0;
+	ePWM->period = 4000; //equates to 25kHz
+	ePWM->resolution = 0.00025; //equates to 25kHz
+	ePWM->outputType = type;
+	
 
 	/* compute TBPRD and Clock dividers for desired PWM frequency */
 	float Cyclens =0.0f ;
@@ -331,7 +471,7 @@ static int setup_ePWM(ePWM_t *ePWM)
 	const float HSPCLKDIV_div[] ={1.0 ,2.0 ,4.0 ,6.0 ,8.0 ,10.0 , 12.0 , 14.0};
 	int NearCLKDIV =7;
 	int NearHSPCLKDIV =7;
-	int NearTBPRD =0;
+	//int NearTBPRD =0;
 
 	Cyclens = 1000000000.0f / frequency ; /* 10^9 / HZ , comput time per cycle (ns) */
 
@@ -356,21 +496,23 @@ static int setup_ePWM(ePWM_t *ePWM)
 			}
 		}
 
-		NearTBPRD = (Cyclens / (10.0 *CLKDIV_div[NearCLKDIV] *HSPCLKDIV_div[NearHSPCLKDIV])) ;
+		//NearTBPRD = (Cyclens / (10.0 *CLKDIV_div[NearCLKDIV] *HSPCLKDIV_div[NearHSPCLKDIV])) ;
+		ePWM->period = (Cyclens / (10.0 *CLKDIV_div[NearCLKDIV] *HSPCLKDIV_div[NearHSPCLKDIV])) ;
+		ePWM->resolution = 1.0f/(float)ePWM->period;
 	}
 
 	/* setting clock driver and freeze time base */
 	ePWM->ePWM_reg->TBCTL = TBCTL_CTRMODE_FREEZE | (NearCLKDIV << 10) | (NearHSPCLKDIV << 7);
 	
-	ePWM->ePWM_reg->TBPRD = (unsigned short)NearTBPRD;
+	ePWM->ePWM_reg->TBPRD = (unsigned short)ePWM->period;
 	
 	/* reset time base counter */
 	ePWM->ePWM_reg->TBCNT = 0;
 
 	/*  setting duty A and duty B, PWM channel outputs initially disabled */
-	ePWM->ePWM_reg->CMPB = (unsigned short)((float)NearTBPRD * ePWM->dcB_scaled);
+	ePWM->ePWM_reg->CMPB = (unsigned short)((float)ePWM->period * ePWM->dcB_scaled);
 
-	ePWM->ePWM_reg->CMPA = (unsigned short)((float)NearTBPRD * ePWM->dcA_scaled);
+	ePWM->ePWM_reg->CMPA = (unsigned short)((float)ePWM->period * ePWM->dcA_scaled);
 	
 	/* make sure PWM A and B outputs are disabled */
 	ePWM->ePWM_reg->AQCTLA = 0x1 | ( 0x0 << 4);
@@ -385,35 +527,34 @@ static int setup_ePWM(ePWM_t *ePWM)
 
 static int export_ePWM(ePWM_t *ePWM)
 {
-    if (hal_pin_bit_newf(HAL_IN, &(ePWM->enAout), comp_id, "%s.en_A", ePWM->name)) {
+    if (hal_pin_bit_newf(HAL_IN, &(ePWM->enA_in), comp_id, "%s.en_A", ePWM->name)) {
         rtapi_print_msg(RTAPI_MSG_ERR,"Error exporting A-out-enable\n");
         return -1;
     }
-    if (hal_pin_bit_newf(HAL_IN, &(ePWM->enBout), comp_id, "%s.en_B", ePWM->name)) {
+    if (hal_pin_bit_newf(HAL_IN, &(ePWM->enB_in), comp_id, "%s.en_B", ePWM->name)) {
         rtapi_print_msg(RTAPI_MSG_ERR,"Error exporting B-out-enable\n");
         return -1;
     }
-    if (hal_pin_float_newf(HAL_IN, &(ePWM->dutyA), comp_id, "%s.dc_A", ePWM->name)) {
+    if (hal_pin_float_newf(HAL_IN, &(ePWM->dcA), comp_id, "%s.dc_A", ePWM->name)) {
         rtapi_print_msg(RTAPI_MSG_ERR,"Error exporting Channel-A-duty-cycle\n");
         return -1;
     }
-    if (hal_pin_float_newf(HAL_IN, &(ePWM->dutyB), comp_id, "%s.dc_B", ePWM->name)) {
+    if (hal_pin_float_newf(HAL_IN, &(ePWM->dcB), comp_id, "%s.dc_B", ePWM->name)) {
         rtapi_print_msg(RTAPI_MSG_ERR,"Error exporting Channel-B-duty-cycle\n");
         return -1;
     }
-    if (hal_pin_float_newf(HAL_IN, &(ePWM->scale), comp_id, "%s.dc_scale", ePWM->name)) {
+    if (hal_pin_float_newf(HAL_IN, &(ePWM->scale_in), comp_id, "%s.dc_scale", ePWM->name)) {
         rtapi_print_msg(RTAPI_MSG_ERR,"Error exporting Duty-cycle-scale\n");
         return -1;
     }
-    if (hal_pin_float_newf(HAL_IN, &(ePWM->minDC), comp_id, "%s.dc_min", ePWM->name)) {
-        rtapi_print_msg(RTAPI_MSG_ERR,"Error exporting minDC\n");
+    if (hal_pin_u32_newf(HAL_IN, &(ePWM->dirApin), comp_id, "%s.dir_A_pin", ePWM->name)) {
+        rtapi_print_msg(RTAPI_MSG_ERR,"Error exporting dirApin\n");
         return -1;
     }
-    if (hal_pin_float_newf(HAL_IN, &(ePWM->maxDC), comp_id, "%s.dc_max", ePWM->name)) {
-        rtapi_print_msg(RTAPI_MSG_ERR,"Error exporting maxDC\n");
+    if (hal_pin_u32_newf(HAL_IN, &(ePWM->dirBpin), comp_id, "%s.dir_B_pin", ePWM->name)) {
+        rtapi_print_msg(RTAPI_MSG_ERR,"Error exporting dirBpin\n");
         return -1;
     }
-
 
     return 0;
 }
@@ -435,12 +576,12 @@ void disable_channel(ePWM_t *ePWM, int channel)
     if(channel == CHANNEL_A)
 	{
         ePWM->ePWM_reg->AQCTLA = 0x1 | ( 0x0 << 4);
-		*(ePWM->dutyA) = *(ePWM->minDC);
+		//*(ePWM->dutyA) = *(ePWM->minDC);
 	}
     else if(channel == CHANNEL_B)	
 	{
         ePWM->ePWM_reg->AQCTLB = 0x1 | ( 0x0 << 8);
-		*(ePWM->dutyB) = *(ePWM->minDC);
+		//*(ePWM->dutyB) = *(ePWM->minDC);
 	}
 
     //ePWM->ePWM_reg->TBCNT = 0;
@@ -449,7 +590,7 @@ void disable_channel(ePWM_t *ePWM, int channel)
 void enable_channel(ePWM_t *ePWM, int channel)
 {
     //ePWM->ePWM_reg->TBCTL |= 0x3;
-	set_channel_dc(ePWM, channel);
+	//set_channel_dc(ePWM, channel);
 	
     if(channel == CHANNEL_A){
         ePWM->ePWM_reg->AQCTLA = 0x2 | ( 0x3 << 4);
@@ -461,20 +602,26 @@ void enable_channel(ePWM_t *ePWM, int channel)
 
 void set_channel_dc(ePWM_t *ePWM, int channel)
 {
-	int NearTBPRD = 4000;
+	//int NearTBPRD = 4000;
 
     if(channel == CHANNEL_A){
-		ePWM->dcA_scaled = *(ePWM->dutyA) / (100.0f * *(ePWM->scale));
-		unsigned short CMPA_val = (unsigned short)((float)NearTBPRD * ePWM->dcA_scaled);
-		if(CMPA_val == 0)
+		//ePWM->dcA_scaled = *(ePWM->dutyA) / (100.0f * *(ePWM->scale));
+		unsigned short CMPA_val = (unsigned short)((float)ePWM->period * ePWM->scaled_dcA);
+		if(CMPA_val < 1)
+		{
 			disable_channel(ePWM, channel);
+			ePWM->enA = 0;
+		}
         ePWM->ePWM_reg->CMPA = CMPA_val;
     }
 	else if(channel == CHANNEL_B){
-		ePWM->dcB_scaled = *(ePWM->dutyB) / (100.0f * *(ePWM->scale));
-		unsigned short CMPB_val = (unsigned short)((float)NearTBPRD * ePWM->dcB_scaled);
+		//ePWM->dcB_scaled = *(ePWM->dutyB) / (100.0f * *(ePWM->scale));
+		unsigned short CMPB_val = (unsigned short)((float)ePWM->period * ePWM->scaled_dcB);
 		if(CMPB_val == 0)
+		{
 			disable_channel(ePWM, channel);
+			ePWM->enA = 0;
+		}
         ePWM->ePWM_reg->CMPB = CMPB_val;
     }
 }
