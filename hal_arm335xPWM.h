@@ -94,10 +94,13 @@ typedef struct {
 	hal_bit_t				*enA_in;
 	hal_bit_t				*enB_in;
 	hal_float_t				*scale_in;
-	hal_u32_t				*dirApin;
-	hal_u32_t				*dirBpin;
+	hal_bit_t				*dirA_out;
+	hal_bit_t				*dirB_out;
+//	hal_u32_t				*dirApin;
+//	hal_u32_t				*dirBpin;
 	
 	hal_float_t				scale;
+	hal_float_t				oldScale;
 	hal_float_t				scaled_dcA;
 	hal_float_t				scaled_dcB;
 	hal_float_t				old_scaled_dcA;
@@ -112,7 +115,7 @@ typedef struct {
 	hal_bit_t				dirB;
 	hal_bit_t				oldDirA;
 	hal_bit_t				oldDirB;
-	hal_int_t				period;
+	hal_u32_t				period;
 	hal_float_t				resolution;
 	hal_bit_t				outputType;
 } ePWM_t;

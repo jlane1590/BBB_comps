@@ -222,13 +222,14 @@ int rtapi_app_main(void)
 void rtapi_app_exit(void)
 {
 
-/*	int n;
+	int n;
     ePWM_t *ePWM;
 	
 	for(n = 0; n < howmany; n++){
 		ePWM = &(ePWM_array[n]);
 		disable_ePWM(ePWM);
-	}*/
+	}
+	
     hal_exit(comp_id);
 }
 
@@ -253,7 +254,7 @@ static void update(void *arg, long period)
 		if(ePWM->scale != ePWM->oldScale) //scale parameter has changed, validate new scale value
 		{
 			
-			if (ePWM->scale < 1e-20) && (ePWM->scale > -1e-20)) // value too small, divide by zero is a bad thing
+			if((ePWM->scale < 1e-20) && (ePWM->scale > -1e-20)) // value too small, divide by zero is a bad thing
 			{
 				ePWM->scale = 1.0;
 			}
@@ -264,7 +265,7 @@ static void update(void *arg, long period)
 		ePWM->scaled_dcB = (*(ePWM->dcB)) / ePWM->scale; //scale dcB
 		
 		//clamp dc values if output is unidirectional
-		if(ePWM->outputType = 0)
+		if(ePWM->outputType == 0)
 		{
 			if(ePWM->scaled_dcA < 0.0)
 				ePWM->scaled_dcA = 0.0;
@@ -319,9 +320,9 @@ static void update(void *arg, long period)
 			if(ePWM->scaled_dcA != ePWM->old_scaled_dcA)
 				set_channel_dc(ePWM, CHANNEL_A);
 			//check if the A direction output has changed and update accordingly
-			if(ePWM->outputType = 1)
+			if(ePWM->outputType == 1)
 				if(ePWM->dirA != ePWM->oldDirA)
-					setDir();	//replace with real way
+					(*(ePWM->dirA_out)) = ePWM->dirA;
 			//check if channel A output is currently disabled and update registers accordingly
 			if(!ePWM->oldEnA && ePWM->enA)
 				enable_channel(ePWM, CHANNEL_A);
@@ -361,7 +362,7 @@ static void update(void *arg, long period)
 				set_channel_dc(ePWM, CHANNEL_B);
 			//check if the B direction output has changed and update accordingly
 			if(ePWM->dirB != ePWM->oldDirB)
-				setDir();	//replace with real way
+				(*(ePWM->dirB_out)) = ePWM->dirB;
 			//check if channel B output is currently disabled and update registers accordingly
 			if(!ePWM->oldEnB && ePWM->enB)
 				enable_channel(ePWM, CHANNEL_B);
@@ -428,6 +429,7 @@ static void update(void *arg, long period)
 		ePWM->oldEnB = ePWM->enB;
 		ePWM->old_scaled_dcB = ePWM->scaled_dcB;
 		ePWM->oldDirB = ePWM->dirB;
+		ePWM->oldScale = ePWM->scale;
 		
 		ePWM++;
 	}
@@ -497,7 +499,7 @@ static int setup_ePWM(ePWM_t *ePWM)
 		}
 
 		//NearTBPRD = (Cyclens / (10.0 *CLKDIV_div[NearCLKDIV] *HSPCLKDIV_div[NearHSPCLKDIV])) ;
-		ePWM->period = (Cyclens / (10.0 *CLKDIV_div[NearCLKDIV] *HSPCLKDIV_div[NearHSPCLKDIV])) ;
+		ePWM->period = (hal_u32_t)(Cyclens / (10.0 *CLKDIV_div[NearCLKDIV] *HSPCLKDIV_div[NearHSPCLKDIV])) ;
 		ePWM->resolution = 1.0f/(float)ePWM->period;
 	}
 
@@ -510,9 +512,9 @@ static int setup_ePWM(ePWM_t *ePWM)
 	ePWM->ePWM_reg->TBCNT = 0;
 
 	/*  setting duty A and duty B, PWM channel outputs initially disabled */
-	ePWM->ePWM_reg->CMPB = (unsigned short)((float)ePWM->period * ePWM->dcB_scaled);
+	ePWM->ePWM_reg->CMPB = (unsigned short)((float)ePWM->period * ePWM->scaled_dcB);
 
-	ePWM->ePWM_reg->CMPA = (unsigned short)((float)ePWM->period * ePWM->dcA_scaled);
+	ePWM->ePWM_reg->CMPA = (unsigned short)((float)ePWM->period * ePWM->scaled_dcA);
 	
 	/* make sure PWM A and B outputs are disabled */
 	ePWM->ePWM_reg->AQCTLA = 0x1 | ( 0x0 << 4);
@@ -547,6 +549,15 @@ static int export_ePWM(ePWM_t *ePWM)
         rtapi_print_msg(RTAPI_MSG_ERR,"Error exporting Duty-cycle-scale\n");
         return -1;
     }
+	if (hal_pin_bit_newf(HAL_OUT, &(ePWM->dirA_out), comp_id, "%s.dir_A", ePWM->name)) {
+        rtapi_print_msg(RTAPI_MSG_ERR,"Error exporting A-dir-out\n");
+        return -1;
+    }
+	if (hal_pin_bit_newf(HAL_OUT, &(ePWM->dirB_out), comp_id, "%s.dir_B", ePWM->name)) {
+        rtapi_print_msg(RTAPI_MSG_ERR,"Error exporting B-dir-out\n");
+        return -1;
+    }
+	/*
     if (hal_pin_u32_newf(HAL_IN, &(ePWM->dirApin), comp_id, "%s.dir_A_pin", ePWM->name)) {
         rtapi_print_msg(RTAPI_MSG_ERR,"Error exporting dirApin\n");
         return -1;
@@ -554,7 +565,7 @@ static int export_ePWM(ePWM_t *ePWM)
     if (hal_pin_u32_newf(HAL_IN, &(ePWM->dirBpin), comp_id, "%s.dir_B_pin", ePWM->name)) {
         rtapi_print_msg(RTAPI_MSG_ERR,"Error exporting dirBpin\n");
         return -1;
-    }
+    }*/
 
     return 0;
 }
