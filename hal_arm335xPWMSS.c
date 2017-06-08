@@ -184,7 +184,6 @@ int rtapi_app_main(void)
     eqep_t *eqep;
 	ecap_t *ecap;
 	epwm_t *epwm;
-	pwmss_t *pwmss;
 	
 	//Check for valid module parameters
 	int param_error = 0;
@@ -317,6 +316,15 @@ int rtapi_app_main(void)
 			return -1;
 		}
 	}
+	
+	/* allocate shared memory for pwmss data */
+	pwmss_t *pwmss = hal_malloc(sizeof(pwmss_t));
+		if (pwmss ==  0) {
+			rtapi_print_msg(RTAPI_MSG_ERR,
+				"%s: ERROR: hal_malloc() failed\n",modname);
+			hal_exit(comp_id);
+			return -1;
+		}
 	
 	/* map memory for all PWMSS in use */	
 	for(i=0; i<MAX_PWMSS;i++){
@@ -826,6 +834,7 @@ static int setup_ecap(ecap_t *ecap)
 	ecap->resolution = 0.00025; //equates to 25kHz
 	ecap->outputType = type;
 
+	return 0;
 }
 
 static int setup_eqep(eqep_t *eqep)
