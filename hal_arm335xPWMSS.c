@@ -204,10 +204,10 @@ int rtapi_app_main(void)
 	
     /* test for number of channels of each device type */
     for (i=0; i < MAX_CAP && ecaps[i]; i++){
-		for(j=0; available_eCAPs[j].name; j++) {
-            retval = strcmp(ecaps[i], available_eCAPs[j].name);
+		for(j=0; available_ecaps[j].name; j++) {
+            retval = strcmp(ecaps[i], available_ecaps[j].name);
             if (retval == 0 ) {	//input ecap name matches eCAP0 or eCAP2
-                pwmss_devices[available_eCAPs[j].addr].inUse = 1; //corresponding PWMSS device is in use
+                pwmss_devices[available_ecaps[j].addr].inUse = 1; //corresponding PWMSS device is in use
 				numcap++;
 				break;
 			}
@@ -220,10 +220,10 @@ int rtapi_app_main(void)
 	}
 	
 	for (i=0; i < MAX_QEP && eqeps[i]; i++){
-		for(j=0; available_eQEPs[j].name; j++) {
-            retval = strcmp(eqeps[i], available_eQEPs[j].name);
+		for(j=0; available_eqeps[j].name; j++) {
+            retval = strcmp(eqeps[i], available_eqeps[j].name);
             if (retval == 0 ) {	//input eqep name matches eQEP0, eQEP1, or eQEP2
-                pwmss_devices[available_eQEPs[j].addr].inUse = 1; //corresponding PWMSS device is in use
+                pwmss_devices[available_eqeps[j].addr].inUse = 1; //corresponding PWMSS device is in use
 				numqep++;
 				break;
 			}
@@ -236,10 +236,10 @@ int rtapi_app_main(void)
 	}
 	
 	for (i=0; i < MAX_PWM && epwms[i]; i++){
-		for(j=0; available_ePWMs[j].name; j++) {
-            retval = strcmp(epwms[i], available_ePWMs[j].name);
+		for(j=0; available_epwms[j].name; j++) {
+            retval = strcmp(epwms[i], available_epwms[j].name);
             if (retval == 0 ) {	//input epwm name matches ePWM0, ePWM1, or ePWM2
-                pwmss_devices[available_ePWMs[j].addr].inUse = 1; //corresponding PWMSS device is in use
+                pwmss_devices[available_epwms[j].addr].inUse = 1; //corresponding PWMSS device is in use
 				numpwm++;
 				break;
 			}
@@ -323,14 +323,14 @@ int rtapi_app_main(void)
 		if(pwmss_devices[i].inUse){ //this PWMSS instantiation is in use, so mmap the registers
 			int fd = open("/dev/mem", O_RDWR);
 			
-			pwmss_devices[i]->pwmss_reg = mmap(0, IOMEMLEN, PROT_READ | PROT_WRITE, MAP_SHARED,
-                    fd, pwmss_devices.deviceAddr);
+			pwmss_devices[i].pwmss_reg = mmap(0, IOMEMLEN, PROT_READ | PROT_WRITE, MAP_SHARED,
+                    fd, pwmss_devices[i].deviceAddr);
 			
 			close(fd);
 			
-			if(pwmss_devices[i]->pwmss_reg == MAP_FAILED) {
+			if(pwmss_devices[i].pwmss_reg == MAP_FAILED) {
                     rtapi_print_msg(RTAPI_MSG_ERR,
-                        "%s: ERROR: PWMSS mmap failed %s\n", modname, i);
+                        "%s: ERROR: PWMSS mmap failed %d\n", modname, i);
                     return -1;
                 }
 		}
@@ -347,9 +347,9 @@ int rtapi_app_main(void)
             if (retval == 0 ) {	//input ecap name matches eCAP0 or eCAP2
                 ecap->name = available_ecaps[i].name;
 
-                ecap->ecap_reg = (void*) pwmss_devices[available_ecaps[i].addr]->pwmss_reg + 0x100;
+                ecap->ecap_reg = (void*) pwmss_devices[available_ecaps[i].addr].pwmss_reg + 0x100;
 
-                rtapi_print("memmapped %s to %p and %p\n",ecap->name,ecap->ecap_reg);
+                rtapi_print("memmapped %s to %p\n",ecap->name,ecap->ecap_reg);
                 setup_ecap(ecap);
                 break;
             }
@@ -366,14 +366,14 @@ int rtapi_app_main(void)
     for (n = 0; n < numqep; n++) {
         eqep = &(eqep_array[n]);
         /* make sure it's a valid device */
-        for(i=0; i < available_eqeps[i].name; i++) {
+        for(i=0; available_eqeps[i].name; i++) {
             retval = strcmp(eqeps[n], available_eqeps[i].name);
             if (retval == 0 ) {	//input eqep name matches eQEP0, eQEP1, or eQEP2
                 eqep->name = available_eqeps[i].name;
 
-                eqep->eqep_reg = (void*) pwmss_devices[available_eqeps[i].addr]->pwmss_reg + 0x180;
+                eqep->eqep_reg = (void*) pwmss_devices[available_eqeps[i].addr].pwmss_reg + 0x180;
 
-                rtapi_print("memmapped %s to %p and %p\n",eqep->name,eqep->eqep_reg);
+                rtapi_print("memmapped %s to %p\n",eqep->name,eqep->eqep_reg);
                 setup_eqep(eqep);
                 break;
             }
@@ -395,9 +395,9 @@ int rtapi_app_main(void)
             if (retval == 0 ) {	//input epwm name matches ePWM0, ePWM1, or ePWM2
                 epwm->name = available_epwms[i].name;
 
-                epwm->epwm_reg = (void*) pwmss_devices[available_epwms[i].addr]->pwmss_reg + 0x200;
+                epwm->epwm_reg = (void*) pwmss_devices[available_epwms[i].addr].pwmss_reg + 0x200;
 
-                rtapi_print("memmapped %s to %p and %p\n",epwm->name,epwm->epwm_reg);
+                rtapi_print("memmapped %s to %p\n",epwm->name,epwm->epwm_reg);
                 setup_epwm(epwm);
                 break;
             }
@@ -410,9 +410,9 @@ int rtapi_app_main(void)
         }
     }
 	
-	pwmss.numcap = numcap;
-	pwmss.numqep = numqep;
-	pwmss.numpwm = numpwm;
+	pwmss->numcap = numcap;
+	pwmss->numqep = numqep;
+	pwmss->numpwm = numpwm;
 	
 	pwmss->ecap = ecap_array;
 	pwmss->eqep = eqep_array;
@@ -455,11 +455,11 @@ static void update(void *arg, long period)
 {
 	pwmss_t *pwmss = arg;
 	
-	if(pwmss.numcap > 0)
+	if(pwmss->numcap > 0)
 		update_ecap(pwmss, period);
-	if(pwmss.numqep > 0)
+	if(pwmss->numqep > 0)
 		update_eqep(pwmss, period);
-	if(pwmss.numpwm > 0)
+	if(pwmss->numpwm > 0)
 		update_epwm(pwmss, period);
 
 }
@@ -480,7 +480,7 @@ static void update_eqep(pwmss_t *pwmss, long period)
 
     eqep = pwmss->eqep;
 
-    for(i = 0; i < pwmss.numqep; i++){
+    for(i = 0; i < pwmss->numqep; i++){
         /* Read the hardware  */
         eqep->raw_count = eqep->eqep_reg->QPOSCNT;
         iflg = eqep->eqep_reg->QFLG & EQEP_INTERRUPT_MASK;
@@ -668,7 +668,7 @@ static void update_epwm(pwmss_t *pwmss, long period)
 	
     epwm = pwmss->epwm;
 	
-	for(i = 0; i < pwmss.numpwm; i++)
+	for(i = 0; i < pwmss->numpwm; i++)
 	{
 		epwm->scale = (*(epwm->scale_in));
 		epwm->enA = (*(epwm->enA_in));
@@ -716,7 +716,7 @@ static void update_epwm(pwmss_t *pwmss, long period)
 		{
 			epwm->scaled_dcA = 0.0;
 			if(epwm->oldEnA) //channel A output is currently enabled; else the channel is already disabled so do nothing
-				disable_channel(epwm, CHANNEL_A);
+				disable_channel(epwm, CHAN_A);
 		}
 		else //channel A output is to be enabled
 		{
@@ -742,14 +742,14 @@ static void update_epwm(pwmss_t *pwmss, long period)
 			}
 			//check if scaled_dcA has changed and update registers accordingly
 			if(epwm->scaled_dcA != epwm->old_scaled_dcA)
-				set_channel_dc(epwm, CHANNEL_A);
+				set_channel_dc(epwm, CHAN_A);
 			//check if the A direction output has changed and update accordingly
 			if(epwm->outputType == 1)
 				if(epwm->dirA != epwm->oldDirA)
 					(*(epwm->dirA_out)) = epwm->dirA;
 			//check if channel A output is currently disabled and update registers accordingly
 			if(!epwm->oldEnA && epwm->enA)
-				enable_channel(epwm, CHANNEL_A);
+				enable_channel(epwm, CHAN_A);
 		}
 		
 		//channel B output is to be disabled
@@ -757,7 +757,7 @@ static void update_epwm(pwmss_t *pwmss, long period)
 		{
 			epwm->scaled_dcB = 0.0;
 			if(epwm->oldEnB) //channel A output is currently enabled; else the channel is already disabled so do nothing
-				disable_channel(epwm, CHANNEL_B);
+				disable_channel(epwm, CHAN_B);
 		}
 		else //channel B output is to be enabled
 		{
@@ -783,13 +783,13 @@ static void update_epwm(pwmss_t *pwmss, long period)
 			}
 			//check if scaled_dcB has changed and update registers accordingly
 			if(epwm->scaled_dcB != epwm->old_scaled_dcB)
-				set_channel_dc(epwm, CHANNEL_B);
+				set_channel_dc(epwm, CHAN_B);
 			//check if the B direction output has changed and update accordingly
 			if(epwm->dirB != epwm->oldDirB)
 				(*(epwm->dirB_out)) = epwm->dirB;
 			//check if channel B output is currently disabled and update registers accordingly
 			if(!epwm->oldEnB && epwm->enB)
-				enable_channel(epwm, CHANNEL_B);
+				enable_channel(epwm, CHAN_B);
 		}
 		
 		epwm->oldEnA = epwm->enA;
@@ -807,6 +807,27 @@ static void update_epwm(pwmss_t *pwmss, long period)
 /*---------------------
  Local functions
 ---------------------*/
+static int setup_ecap(ecap_t *ecap)
+{
+	/* export pins to hal */
+	export_ecap(ecap);
+	
+	/* initialize members of ecap struct */
+	ecap->scale = 100.0f;
+	ecap->scaled_dc = 0.0f;
+	ecap->old_scaled_dc = 0.0f;
+	ecap->en = false;
+	ecap->oldEn = false;
+	ecap->min_dc = (float)minDC / 100.0f;
+	ecap->max_dc = (float)maxDC / 100.0f;
+	ecap->dir = 0;
+	ecap->oldDir = 0;
+	ecap->period = 4000; //equates to 25kHz
+	ecap->resolution = 0.00025; //equates to 25kHz
+	ecap->outputType = type;
+
+}
+
 static int setup_eqep(eqep_t *eqep)
 {
     export_eqep(eqep);
@@ -942,6 +963,28 @@ static int setup_epwm(epwm_t *epwm)
 	/* start the period counter even though the outputs are disabled */
     epwm->epwm_reg->TBCTL &= ~0x3;
 	
+    return 0;
+}
+
+static int export_ecap(ecap_t *ecap)
+{
+    if (hal_pin_bit_newf(HAL_IN, &(ecap->en_in), comp_id, "%s.en", ecap->name)) {
+        rtapi_print_msg(RTAPI_MSG_ERR,"Error exporting out-enable\n");
+        return -1;
+    }
+    if (hal_pin_float_newf(HAL_IN, &(ecap->dc), comp_id, "%s.dc", ecap->name)) {
+        rtapi_print_msg(RTAPI_MSG_ERR,"Error exporting duty-cycle\n");
+        return -1;
+    }
+    if (hal_pin_float_newf(HAL_IN, &(ecap->scale_in), comp_id, "%s.dc_scale", ecap->name)) {
+        rtapi_print_msg(RTAPI_MSG_ERR,"Error exporting Duty-cycle-scale\n");
+        return -1;
+    }
+	if (hal_pin_bit_newf(HAL_OUT, &(ecap->dir_out), comp_id, "%s.dir", ecap->name)) {
+        rtapi_print_msg(RTAPI_MSG_ERR,"Error exporting dir-out\n");
+        return -1;
+    }
+
     return 0;
 }
 

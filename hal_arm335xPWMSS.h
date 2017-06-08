@@ -63,20 +63,20 @@ typedef struct {
 
 typedef struct {
 	__u32	TSCTR;				//0x0		Time-stamp counter register
-	__u32	CTRPHS				//0x4		Counter phase offset value register
-	__u32	CAP1				//0x8		Capture 1 register
-	__u32	CAP2				//0xC		Capture 2 register
-	__u32	CAP3				//0x10		Capture 3 register
-	__u32	CAP4				//0x14		Capture 4 register
-	__u32	RESERVED[4]			//0x18		Reserved memory space
-	__u16	ECCTL1				//0x28		Capture control register 1
-	__u16	ECCTL2				//0x2A		Capture control register 2
-	__u16	ECEINT				//0x2C		Capture interrupt enable register
-	__u16	ECFLG				//0x2E		Capture interrupt flag register
-	__u16	ECCLR				//0x30		Capture interrupt clear register
-	__u16	ECFRC				//0x32		Capture interrupt force register
-	__u32	RESERVED_2[10]		//0x34		Reserved memory space
-	__u32	REVID				//0x5C		Revision ID register
+	__u32	CTRPHS;				//0x4		Counter phase offset value register
+	__u32	CAP1;				//0x8		Capture 1 register
+	__u32	CAP2;				//0xC		Capture 2 register
+	__u32	CAP3;				//0x10		Capture 3 register
+	__u32	CAP4;				//0x14		Capture 4 register
+	__u32	RESERVED[4];			//0x18		Reserved memory space
+	__u16	ECCTL1;			//0x28		Capture control register 1
+	__u16	ECCTL2;				//0x2A		Capture control register 2
+	__u16	ECEINT;				//0x2C		Capture interrupt enable register
+	__u16	ECFLG;				//0x2E		Capture interrupt flag register
+	__u16	ECCLR;				//0x30		Capture interrupt clear register
+	__u16	ECFRC;				//0x32		Capture interrupt force register
+	__u32	RESERVED_2[10];		//0x34		Reserved memory space
+	__u32	REVID;				//0x5C		Revision ID register
 	
 } ecap_reg_t;
 
